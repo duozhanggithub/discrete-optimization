@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from collections import namedtuple
+from pyscipopt import Model, quicksum
 Item = namedtuple("Item", ['index', 'value', 'weight'])
 
 def solve_it(input_data):
@@ -21,12 +22,14 @@ def solve_it(input_data):
         parts = line.split()
         items.append(Item(i-1, int(parts[0]), int(parts[1])))
 
-    if len(items) < 40:
-        value, taken = depth_first_relaxed_capacity_simple(items, capacity)
-    elif len(items) <= 200 or len(items) == 1000:
-        value, taken = dynamic_programming_simple(items, capacity)
-    else:
-        value, taken = greedy_most_value_density_items(items, capacity)
+    value, taken = scip_solver(items, capacity)
+
+    #if len(items) < 40:
+    #    value, taken = depth_first_relaxed_capacity_simple(items, capacity)
+    #elif len(items) <= 200 or len(items) == 1000:
+    #    value, taken = dynamic_programming_simple(items, capacity)
+    #else:
+    #    value, taken = greedy_most_value_density_items(items, capacity)
     #value, taken = greedy_simple(items, capacity)
     #value, taken = greedy_max_number_of_items(items, capacity)
     #value, taken = greedy_most_valuable_items(items, capacity)
@@ -283,6 +286,70 @@ def get_relaxed_value_per_kg_value(items, capacity):
             proportion = item.weight/diff
             value += item.value/proportion
         i += 1
+
+'''
+https://github.com/SCIP-Interfaces/PySCIPOpt
+http://scip.zib.de/
+'''
+def scip_solver(items, capacity):
+    # create solver instance
+    s = Model("Knapsack")
+    s.hideOutput()
+
+    # setting the objective sense to maximise
+    s.setMaximize()
+
+    # item weights
+    weights = [i.weight for i in items]
+    # item costs
+    costs = [i.value for i in items]
+
+    assert len(weights) == len(costs)
+
+    # knapsack size
+    knapsackSize = capacity
+
+    # adding the knapsack variables
+    knapsackVars = []
+    varNames = []
+    varBaseName = "Item"
+    for i in range(len(weights)):
+        varNames.append(varBaseName + "_" + str(i))
+        knapsackVars.append(s.addVar(varNames[i], vtype='I', obj=costs[i], ub=1.0))
+
+
+    # adding a linear constraint for the knapsack constraint
+    s.addCons(quicksum(w*v for (w, v) in zip(weights, knapsackVars)) <= knapsackSize)
+
+    # solve problem
+    s.optimize()
+
+    #s.printStatistics()
+
+    # return solution
+    value = 0
+    taken = [0]*len(items)
+    for i in range(len(weights)):
+        current_value = round(s.getVal(knapsackVars[i]))
+        if current_value > 0:
+            value += costs[i]
+            taken[i] = 1  
+        else:
+            taken[i] = 0          
+
+    # print solution
+    #varSolutions = []
+    #for i in range(len(weights)):
+    #    solValue = round(s.getVal(knapsackVars[i]))
+    #    varSolutions.append(solValue)
+    #    if solValue > 0:
+    #        print (varNames[i], "Times Selected:", solValue)
+    #        print ("\tIncluded Weight:", weights[i]*solValue, "\tItem Cost:", costs[i]*solValue)
+
+    #includedWeight = sum([weights[i]*varSolutions[i] for i in range(len(weights))])
+    #assert includedWeight > 0 and includedWeight <= knapsackSize
+
+    return value, taken
 
 if __name__ == '__main__':
     import sys
