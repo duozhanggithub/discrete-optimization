@@ -3,7 +3,7 @@
 
 from collections import namedtuple
 import math
-from pyscipopt import Model
+from pyscipopt import Model, quicksum, multidict
 
 Point = namedtuple("Point", ['x', 'y'])
 Facility = namedtuple("Facility", ['index', 'setup_cost', 'capacity', 'location'])
@@ -32,10 +32,7 @@ def solve_it(input_data):
         parts = lines[i].split()
         customers.append(Customer(i-1-facility_count, int(parts[0]), Point(float(parts[1]), float(parts[2]))))
 
-    scip_solver()
-
-    obj = 0
-    solution = ''    
+    obj, solution = scip_solver(customers, facilities)
 
     # prepare the solution in the specified output format
     output_data = '%.2f' % obj + ' ' + str(0) + '\n'
@@ -78,13 +75,81 @@ References:
 https://github.com/SCIP-Interfaces/PySCIPOpt
 http://scip.zib.de/
 '''
-def scip_solver():
-    model = Model("Example")
-    x = model.addVar("x")
-    y = model.addVar("y", vtype="INTEGER")
-    model.setObjective(x + y)
-    model.addCons(2*x - y*y >= 0)
-    model.optimize()
+def scip_solver(customers, facilities):
+    '''
+    Data structure:
+
+    Point = namedtuple("Point", ['x', 'y'])
+    Facility = namedtuple("Facility", ['index', 'setup_cost', 'capacity', 'location'])
+    Customer = namedtuple("Customer", ['index', 'demand', 'location'])
+    '''
+    
+    n_f = len(facilities)
+    n_c = len(customers)
+
+    m = Model("Facility")
+    m.hideOutput
+    m.setMinimize()
+
+    # Variables to define if customer 'c' is assinged to facility 'f'
+    x, s = {}, {}
+    for i in range(0, n_f):
+        for j in range(0, n_c):
+            x[i,j] = m.addVar(vtype="B", name="x(%s,%s)"%(i,j))
+
+    # Costs for each facility
+    c_f = {}
+    for i in range(0, n_f):
+        c_f[i] = facilities[i].setup_cost
+    #c_f = [i.setup_cost for i in facilities]
+
+    # Distance between facilities and customers
+    d = {}
+    for i in range(0, n_f):
+        for j in range(0, n_c):
+            d[i,j] = facility_customer_dist(facilities[i], customers[j])
+
+    # Constraint 1: The sum of the demand from all the consumers 'c'
+    # assigned to facility 'f' should be equal or less than the
+    # facility's capacity.
+    for i in range(0, n_f):
+        m.addCons(quicksum(x[i,j]*customers[j].demand for j in range(0, n_c)) <= facilities[i].capacity, "Cap(%s)"%i)
+
+    # Constraint 2: Each customer must be served by exactly one facility
+    for j in range(0, n_c):
+        m.addCons(quicksum(x[i,j] for i in range(0, n_f)) == 1, "Cust(%s)"%j)
+
+    # Objective function
+    #  + quicksum(x[i,j] for (i,j) in x)
+    #m.setObjective(quicksum(c_f[i] for (i,j) in x if x[i,j] == 1), "minimize")
+    m.setObjective(quicksum(x[i,j]*d[i,j] for (i,j) in x) + quicksum(c_f[i] for i in c_f if facility_is_alocated(x, i)), "minimize")
+
+    #m.data = x
+    m.optimize()
+
+    vals = m.getVars()
+    i_v = 0
+    sol = [0 for i in range(0, n_c)]
+    for i in range(0, n_f):
+        for j in range(0, n_c):
+            current_val = m.getVal(vals[i_v])
+            if current_val == 1:
+                sol[j] = i
+                #print "Customer %s assigned to facility %s"%(j,i)
+            i_v += 1
+
+    obj = m.getObjVal()
+    return obj, sol
+
+def facility_customer_dist(facility, customer):
+    x_dist = math.pow(facility.location.x - customer.location.x, 2)
+    y_dist = math.pow(facility.location.y - customer.location.y, 2)
+    return math.sqrt(x_dist + y_dist)
+
+def facility_is_alocated(x, f):
+    for i, j in x:
+        return (x[f, j]) >= (1)
+    return False
 
 import sys
 
