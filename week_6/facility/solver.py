@@ -92,51 +92,45 @@ def scip_solver(customers, facilities):
     m.setMinimize()
 
     # Variables to define if customer 'c' is assinged to facility 'f'
-    x, s = {}, {}
+    # and if facility is active.
+    x, f, d = {}, {}, {}
     for i in range(0, n_f):
+        f[i] = m.addVar(vtype="B", name="f(%s)"%(i))
         for j in range(0, n_c):
             x[i,j] = m.addVar(vtype="B", name="x(%s,%s)"%(i,j))
 
-    # Costs for each facility
-    c_f = {}
-    for i in range(0, n_f):
-        c_f[i] = facilities[i].setup_cost
-    #c_f = [i.setup_cost for i in facilities]
-
-    # Distance between facilities and customers
-    d = {}
-    for i in range(0, n_f):
-        for j in range(0, n_c):
+            # Distance between facilities and customers
             d[i,j] = facility_customer_dist(facilities[i], customers[j])
+
+    # Costs for each facility
+    c_f = [i.setup_cost for i in facilities]
 
     # Constraint 1: The sum of the demand from all the consumers 'c'
     # assigned to facility 'f' should be equal or less than the
     # facility's capacity.
     for i in range(0, n_f):
         m.addCons(quicksum(x[i,j]*customers[j].demand for j in range(0, n_c)) <= facilities[i].capacity, "Cap(%s)"%i)
+        # Constraint to make sure a not open facility is not assigned
+        for j in range(0, n_c):
+            m.addCons(x[i,j] - f[i] <= f[i], "Fac(%s,%s)"%(i,j))
 
     # Constraint 2: Each customer must be served by exactly one facility
     for j in range(0, n_c):
         m.addCons(quicksum(x[i,j] for i in range(0, n_f)) == 1, "Cust(%s)"%j)
 
     # Objective function
-    #  + quicksum(x[i,j] for (i,j) in x)
-    #m.setObjective(quicksum(c_f[i] for (i,j) in x if x[i,j] == 1), "minimize")
-    m.setObjective(quicksum(x[i,j]*d[i,j] for (i,j) in x) + quicksum(c_f[i] for i in c_f if facility_is_alocated(x, i)), "minimize")
+    m.setObjective(quicksum(x[i,j]*d[i,j] for (i,j) in x) + quicksum(f[i]*facilities[i].setup_cost for i in f), "minimize")
 
     #m.data = x
     m.optimize()
 
-    vals = m.getVars()
-    i_v = 0
     sol = [0 for i in range(0, n_c)]
     for i in range(0, n_f):
         for j in range(0, n_c):
-            current_val = m.getVal(vals[i_v])
+            current_val = m.getVal(x[i,j])
             if current_val == 1:
                 sol[j] = i
                 #print "Customer %s assigned to facility %s"%(j,i)
-            i_v += 1
 
     obj = m.getObjVal()
     return obj, sol
@@ -148,7 +142,8 @@ def facility_customer_dist(facility, customer):
 
 def facility_is_alocated(x, f):
     for i, j in x:
-        return (x[f, j]) >= (1)
+        if(f == i):
+            return True
     return False
 
 import sys
