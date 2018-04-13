@@ -5,7 +5,9 @@ import math
 from collections import namedtuple
 from random import shuffle
 from random import random
+from pyscipopt import Model, quicksum, multidict
 import time
+import networkx
 
 Point = namedtuple("Point", ['x', 'y'])
 
@@ -37,7 +39,10 @@ def solve_it(input_data):
     #final_solution, obj = meta_heuristic_restarts(points, solution, obj, nodeCount)
 
     # Second meta-heuristic approach: Metropolis/Annealing
-    final_solution, obj = meta_heuristic_annealing(points, solution, obj, nodeCount)
+    #final_solution, obj = meta_heuristic_annealing(points, solution, obj, nodeCount)
+
+    obj, final_solution = scip_solver(points)
+    #obj, final_solution = scip_solver_2(points)
 
     # prepare the solution in the specified output format
     output_data = '%.2f' % obj + ' ' + str(0) + '\n'
@@ -392,6 +397,188 @@ TODO: implement List-Based Simulated Annealing algorithm (LBSA)
 Reference: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4808530/
 '''
 
+'''
+MIP using PySCIPOpt.
+References:
+https://github.com/SCIP-Interfaces/PySCIPOpt
+http://scip.zib.de/
+'''
+def scip_solver(nodes):
+    model = Model("tsp")
+    model.hideOutput()
+    model.setMinimize()    
+    model.setRealParam("limits/gap", 0.01)
+    model.setRealParam("limits/time", 3600*10)
+
+    n_c = len(nodes)
+    n_range = range(0, n_c)
+
+    x, c, u = {}, {}, {}
+    for i in n_range:
+        u[i] = model.addVar(lb=0, ub=n_c-1, vtype="C", name="u(%s)"%i)
+        for j in n_range:
+            if j != i:
+                x[i,j] = model.addVar(vtype="B", name="x(%s,%s)"%(i,j))
+                c[i,j] = city_dist(nodes[i], nodes[j])
+
+    for i in n_range:
+        #model.addCons(quicksum(x[j,i] for j in n_range if j < i) + \
+        #                quicksum(x[i,j] for j in n_range if j > i) == 2, "Degree(%s)"%i)
+        #model.addCons(quicksum(x[i,j] for j in n_range if j > i) == 1, "Uniq(%s)"%i)
+        model.addCons(quicksum(x[i,j] for j in n_range if j != i) == 1, "Out(%s)"%i)
+        model.addCons(quicksum(x[j,i] for j in n_range if j != i) == 1, "In(%s)"%i)
+        
+    for i in range(0,n_c):
+        for j in range(1,n_c):
+            if i < j:
+                model.addCons((x[j,i] + x[i,j]) <= 1, "Perm(%s,%s)"%(i,j))
+
+    for i in range(0,n_c):
+        for j in range(1,n_c):
+            if i != j:
+    #            model.addCons(u[i] - u[j] + (n_c-1)*x[i,j] + (n_c-3)*x[j,i] <= n_c-2, "MTZ(%s,%s)"%(i,j))
+                model.addCons(u[i] - u[j] + (n_c-1)*x[i,j] <= n_c-2, "MTZ(%s,%s)"%(i,j))
+
+    # for i in range(1,n_c):
+    #     model.addCons(-x[0,i] - u[i] + (n_c-3)*x[i,0] <= -2, name="LiftedLB(%s)"%i)
+    #     model.addCons(-x[i,0] + u[i] + (n_c-3)*x[0,i] <= n_c-2, name="LiftedUB(%s)"%i)
+
+    model.setObjective(quicksum(c[i,j]*x[i,j] for (i, j) in x), "minimize")
+
+    model.data = x, u
+    print "start"
+    model.optimize()
+    # sols = model.getSols()
+
+    # best_sol = sols[0]
+    # print model.getObjVal(best_sol)
+    # for i in range(1, len(sols)):
+    #     current_obj = model.getObjVal(sols[i])
+    #     print current_obj
+    #     if current_obj < model.getObjVal(best_sol):
+    #         best_sol = sols[i]
+
+    #for (i,j) in x:
+    #    if model.getVal(x[i,j]) == 1:
+    #        print "x[%s,%s] = %s" % (i,j,model.getVal(x[i,j]))
+
+    #x, u = model.data
+    sol = []
+    i = 0
+    sol.append(i)
+    while len(sol) < len(nodes):
+        for j in n_range:
+            if i != j and model.getVal(x[i,j]) == 1:
+                sol.append(j)
+                i = j
+                break
+
+    #i = 0
+    #sol.append(i)
+    # while len(sol) < len(nodes):
+    #     for j in n_range:
+    #         if j != i and not j in sol:
+    #             current_val = model.getVal(x[i,j])
+    #             if current_val == 1:
+    #                 sol.append(j)
+    #                 i = j
+    #                 break
+
+    obj = model.getObjVal()
+    return obj, sol
+
+def scip_solver_2(nodes):
+
+    def addcut(cut_edges):
+        G = networkx.Graph()
+        G.add_edges_from(cut_edges)
+        Components = list(networkx.connected_components(G))
+        if len(Components) == 1:
+            return False
+        model.freeTransform()
+        for S in Components:
+            model.addCons(quicksum(x[i,j] for i in S for j in S if j>i) <= len(S)-1)
+            print("cut: len(%s) <= %s" % (S,len(S)-1))
+        return True
+
+
+    def addcut2(cut_edges):
+        G = networkx.Graph()
+        G.add_edges_from(cut_edges)
+        Components = list(networkx.connected_components(G))
+
+        if len(Components) == 1:
+            return False
+        model.freeTransform()
+        for S in Components:
+            T = set(V) - set(S)
+            print("S:",S)
+            print("T:",T)
+            model.addCons(quicksum(x[i,j] for i in S for j in T if j>i) +
+                          quicksum(x[i,j] for i in T for j in S if j>i) >= 2)
+            print("cut: %s >= 2" % "+".join([("x[%s,%s]" % (i,j)) for i in S for j in T if j>i]))
+        return True
+
+    # main part of the solution process:
+    model = Model("tsp")
+
+    #model.hideOutput() # silent/verbose mode
+    
+    n_c = len(nodes)
+    n_range = range(0, n_c)
+
+    x, c, u = {}, {}, {}
+    for i in n_range:
+        for j in n_range:
+            if j > i:
+                c[i,j] = city_dist(nodes[i], nodes[j])
+                x[i,j] = model.addVar(ub=1, name="x(%s,%s)"%(i,j))
+
+    for i in n_range:
+        model.addCons(quicksum(x[j,i] for j in n_range if j < i) + \
+                        quicksum(x[i,j] for j in n_range if j > i) == 2, "Degree(%s)"%i)
+
+    model.setObjective(quicksum(c[i,j]*x[i,j] for i in n_range for j in n_range if j > i), "minimize")
+
+    EPS = 1.e-6
+    isMIP = False
+    while True:
+        model.optimize()
+        edges = []
+        for (i,j) in x:
+            if model.getVal(x[i,j]) > EPS:
+                edges.append( (i,j) )
+
+        if addcut(edges) == False:
+            if isMIP:     # integer variables, components connected: solution found
+                break
+            model.freeTransform()
+            for (i,j) in x:     # all components connected, switch to integer model
+                model.chgVarType(x[i,j], "B")
+                isMIP = True
+
+    obj = model.getObjVal()
+
+    print obj
+    print edges
+
+    sol = []
+    i = 0
+    sol.append(i)
+    while len(sol) < len(nodes):
+        for j in n_range:
+            if j > i and model.getVal(x[i,j]) == 1:
+                sol.append(j)
+                i = j
+                break
+
+    return obj, sol
+
+def city_dist(point1, point2):
+    x_dist = math.pow(point1.x - point2.x, 2)
+    y_dist = math.pow(point1.y - point2.y, 2)
+    return math.sqrt(x_dist + y_dist)
+
 import sys
 
 if __name__ == '__main__':
@@ -404,3 +591,14 @@ if __name__ == '__main__':
     else:
         print('This test requires an input file.  Please select one from the data directory. (i.e. python solver.py ./data/tsp_51_1)')
 
+'''
+Output:
+
+20753.87 0
+0 12 93 15 97 33 60 1 36 45 46 30 94 82 49 23 6 85 63 48 59 41 68 42 53 9 18 52 22 8 90 38 70 72 19 25 40 43 44 99 11 32 21 35 54 92 5 20 87 88 77 37 47 7 83 39 74 66 57 7124 55 3 51 84 17 79 26 29 14 80 96 16 4 91 69 13 28 62 64 76 34 50 2 89 61 98 67 78 95 73 81 10 75 56 31 27 58 86 65
+
+37657.30 0
+0 155 199 125 161 93 16 89 139 138 97 169 48 69 152 88 104 166 31 96 10 119 33 148 185 37 65 7 22 120 189 145 124 108 45 51 137 179 80 129 167 109 41 184 172 21 192 110 10257 127 28 190 196 175 198 107 128 35 158 74 66 131 100 194 197 6 73 111 60 170 126 134 71 56 160 75 79 193 156 133 106 183 157 151 15 62 115 176 4 117 123 52 59 43 92 3 15442 76 63 149 58 84 142 95 188 186 13 32 67 165 44 98 30 77 173 64 159 85 82 2 39 5 17 81 182 103 105 132 114 11 20 55 130 162 147 94 150 27 46 181 163 113 24 19 141 9 8 10154 177 86 25 112 118 36 50 191 18 135 144 116 91 140 47 143 1 99 29 34 61 195 187 70 121 122 153 53 90 38 72 14 68 171 136 83 40 146 78 180 12 178 87 164 23 26 174 168 49
+
+
+'''
