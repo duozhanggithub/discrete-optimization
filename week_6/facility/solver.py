@@ -91,7 +91,7 @@ def scip_solver(customers, facilities):
     m.hideOutput
     m.setMinimize()
     m.setRealParam("limits/gap", 0.01)
-    m.setRealParam("limits/time", 3600*10)
+    m.setRealParam("limits/time", 3600*12)
 
     # Variables to define if customer 'c' is assinged to facility 'f'
     # and if facility is active.
