@@ -8,6 +8,7 @@ from random import random
 from pyscipopt import Model, quicksum, multidict
 import time
 import networkx
+import ast
 
 Point = namedtuple("Point", ['x', 'y'])
 
@@ -16,6 +17,8 @@ def length(point1, point2):
 
 def solve_it(input_data):
     # Modify this code to run your optimization algorithm
+
+    start_time = time.time()
 
     # parse the input
     lines = input_data.split('\n')
@@ -41,12 +44,17 @@ def solve_it(input_data):
     # Second meta-heuristic approach: Metropolis/Annealing
     #final_solution, obj = meta_heuristic_annealing(points, solution, obj, nodeCount)
 
-    #obj, final_solution = scip_solver(points)
-    obj, final_solution = scip_solver_2(points)
+    #obj, final_solution = two_opt_neighborhood_with_annealing(points, solution)
+
+    if nodeCount < 1000:
+    	#obj, final_solution = scip_solver(points)
+    	obj, solution = scip_solver_2(points)
 
     # prepare the solution in the specified output format
     output_data = '%.2f' % obj + ' ' + str(0) + '\n'
-    output_data += ' '.join(map(str, final_solution))
+    output_data += ' '.join(map(str, solution))
+
+    print time.time() - start_time
 
     return output_data
 
@@ -82,9 +90,9 @@ def meta_heuristic_restarts(points, current_solution, current_obj, node_count):
 def meta_heuristic_annealing(points, current_solution, current_obj, node_count):
     current_solution, obj = two_opt_neighborhood_with_annealing(points, current_solution, node_count)
 
-    return current_solution, obj
+    #return current_solution, obj
 
-    '''
+    
     final_solution = []
     starting_points = []
     i = 0
@@ -97,11 +105,11 @@ def meta_heuristic_annealing(points, current_solution, current_obj, node_count):
             current_obj = tmp_obj
             final_solution = tmp_solution
 
-        shuffle(current_solution)
-        if len(starting_points) < int(node_count/2):
-            while current_solution[0] in starting_points:
-                shuffle(current_solution)
-            starting_points.append(current_solution[0])
+        #shuffle(current_solution)
+        #if len(starting_points) < int(node_count/2):
+        #    while current_solution[0] in starting_points:
+        #        shuffle(current_solution)
+        #    starting_points.append(current_solution[0])
         current_trivial_obj = calculate_tour_length(points, current_solution, node_count)
         while current_trivial_obj > trivial_obj and s <= int(node_count/2):
             shuffle(current_solution)
@@ -112,7 +120,6 @@ def meta_heuristic_annealing(points, current_solution, current_obj, node_count):
         i += 1
 
     return current_solution, current_obj
-    '''
 
 '''
 2-opt algorithm implementation.
@@ -405,10 +412,11 @@ http://scip.zib.de/
 '''
 def scip_solver(nodes):
     model = Model("tsp")
-    #model.hideOutput()
+    model.hideOutput()
     model.setMinimize()    
-    model.setRealParam("limits/gap", 0.1)
-    model.setRealParam("limits/time", 3600*12)
+    #model.setRealParam("limits/gap", 0.1)
+    #model.setRealParam("limits/time", 3600*12)
+    model.setIntParam("limits/solutions", 1)
 
     n_c = len(nodes)
     n_range = range(0, n_c)
@@ -468,6 +476,7 @@ def scip_solver(nodes):
     while len(sol) < len(nodes):
         for j in n_range:
             if i != j and model.getVal(x[i,j]) == 1:
+                print j
                 sol.append(j)
                 i = j
                 break
@@ -495,10 +504,13 @@ https://github.com/SCIP-Interfaces/PySCIPOpt/blob/master/examples/finished/tsp.p
 '''
 def scip_solver_2(nodes):
 
+    max_time = 3600*3
+
     def addcut(cut_edges):
         G = networkx.Graph()
         G.add_edges_from(cut_edges)
         Components = list(networkx.connected_components(G))
+        #print len(Components)
         if len(Components) == 1:
             return False
         model.freeTransform()
@@ -507,9 +519,10 @@ def scip_solver_2(nodes):
             #print("cut: len(%s) <= %s" % (S,len(S)-1))
         return True
 
-
     model = Model("tsp")
     model.hideOutput()
+    #model.setRealParam("limits/time", max_time)
+    #model.setIntParam("limits/solutions", 1)
     
     n_c = len(nodes)
     n_range = range(0, n_c)
@@ -526,9 +539,11 @@ def scip_solver_2(nodes):
                         quicksum(x[i,j] for j in n_range if j > i) == 2, "Degree(%s)"%i)
 
     model.setObjective(quicksum(c[i,j]*x[i,j] for i in n_range for j in n_range if j > i), "minimize")
-
     EPS = 1.e-6
     isMIP = False
+    best_obj = 9999999999999
+    best_edges = []
+    
     while True:
         model.optimize()
         edges = []
@@ -537,36 +552,46 @@ def scip_solver_2(nodes):
                 edges.append( (i,j) )
 
         if addcut(edges) == False:
+            current_obj = model.getObjVal()
+            #print current_obj
+            #best_obj = current_obj
+            #best_edges = edges
+            if current_obj < best_obj and len(edges) == len(nodes):
+                best_obj = current_obj
+                best_edges = edges
+                #break # added because optimization was taking too long with large scenarios
             if isMIP:     # integer variables, components connected: solution found
                 break
             model.freeTransform()
             for (i,j) in x:     # all components connected, switch to integer model
                 model.chgVarType(x[i,j], "B")
-                isMIP = True
+            #model.setIntParam("limits/solutions", 1)
+	    isMIP = True
 
-    obj = model.getObjVal()
+    #obj = model.getObjVal()
+    #print best_edges
 
-    #print obj
-    #print edges
+    #with open('_1889_edges', 'r') as edges_file:
+	#best_edges = ast.literal_eval(edges_file.read())
 
     tour = []
-    current_vertice = edges[0][1]
-    tour.append(edges[0][0])
+    current_vertice = best_edges[0][1]
+    tour.append(best_edges[0][0])
     tour.append(current_vertice)
-    edges.remove(edges[0])
+    best_edges.remove(best_edges[0])
     while len(tour) < len(nodes):
-        for edge in edges:
+        for edge in best_edges:
             if current_vertice in edge:
                 for v in edge:
-                    if v != current_vertice:
+                    if v != current_vertice and not v in tour:
                         tour.append(v)
                         current_vertice = v
-                        edges.remove(edge)
+                        best_edges.remove(edge)
                         break
 
     #print tour
 
-    return obj, tour
+    return best_obj, tour
 
 def city_dist(point1, point2):
     x_dist = math.pow(point1.x - point2.x, 2)
