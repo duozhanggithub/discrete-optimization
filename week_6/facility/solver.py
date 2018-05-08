@@ -32,7 +32,11 @@ def solve_it(input_data):
         parts = lines[i].split()
         customers.append(Customer(i-1-facility_count, int(parts[0]), Point(float(parts[1]), float(parts[2]))))
 
-    obj, solution = scip_solver(customers, facilities)
+    if facility_count <= 500:
+        limit_solutions = customer_count >= 1000
+    	obj, solution = scip_solver(customers, facilities, limit_solutions)
+    else:
+    	obj, solution = trivial_solver(customers, facilities)
 
     # prepare the solution in the specified output format
     output_data = '%.2f' % obj + ' ' + str(0) + '\n'
@@ -75,7 +79,7 @@ References:
 https://github.com/SCIP-Interfaces/PySCIPOpt
 http://scip.zib.de/
 '''
-def scip_solver(customers, facilities):
+def scip_solver(customers, facilities, limit_solutions):
     '''
     Data structure:
 
@@ -84,53 +88,64 @@ def scip_solver(customers, facilities):
     Customer = namedtuple("Customer", ['index', 'demand', 'location'])
     '''
     
-    n_f = len(facilities)
-    n_c = len(customers)
+    n_f = range(0, len(facilities))
+    n_c = range(0, len(customers))
 
     m = Model("Facility")
     m.hideOutput
     m.setMinimize()
-    m.setRealParam("limits/gap", 0.01)
-    m.setRealParam("limits/time", 3600*12)
+    #m.setRealParam("limits/gap", 0.01)
+    m.setRealParam("limits/time", 3600*4)
+    #if limit_solutions == True:
+    #	m.setIntParam("limits/bestsol", 10)
 
     # Variables to define if customer 'c' is assinged to facility 'f'
     # and if facility is active.
     x, f, d = {}, {}, {}
-    for i in range(0, n_f):
-        f[i] = m.addVar(vtype="B", name="f(%s)"%(i))
-        for j in range(0, n_c):
+    for j in n_f:
+        f[j] = m.addVar(vtype="B", name="f(%s)"%(j))
+        for i in n_c:
             x[i,j] = m.addVar(vtype="B", name="x(%s,%s)"%(i,j))
+	    #x[i,j] = m.addVar(vtype="C", name="x(%s,%s)"%(i,j))
 
             # Distance between facilities and customers
-            d[i,j] = facility_customer_dist(facilities[i], customers[j])
+            d[i,j] = facility_customer_dist(facilities[j], customers[i])
         
-    for i in range(0, n_f):
+    for j in n_f:
         # Constraint 1: The sum of the demand from all the consumers 'c'
         # assigned to facility 'f' should be equal or less than the
         # facility's capacity.
-        m.addCons(quicksum(x[i,j]*customers[j].demand for j in range(0, n_c)) <= facilities[i].capacity, "Cap(%s)"%i)
-
-        # Constraint to make sure a not open facility is not assigned
-        m.addCons(quicksum(x[i,j] - f[i] for j in range(0, n_c)) <= f[i], "Fac(%s)"%i)
+        m.addCons(quicksum(x[i,j]*customers[i].demand for i in n_c) <= f[j]*facilities[j].capacity, "Cap(%s)"%j)
+        #m.addCons(quicksum(x[i,j] for i in n_c) <= facilities[j].capacity*f[j], "Cap(%s)"%i)
 
     # Constraint 2: Each customer must be served by exactly one facility
-    for j in range(0, n_c):
-        m.addCons(quicksum(x[i,j] for i in range(0, n_f)) == 1, "Cust(%s)"%j)
+    for i in n_c:
+        m.addCons(quicksum(x[i,j] for j in n_f) == 1, "Cust(%s)"%(i))
+        #m.addCons(quicksum(x[i,j] for j in n_f) == customers[i].demand, "Cust(%s)"%i)
+
+    # Constraint to make sure a not open facility is not assigned
+    for (i,j) in x:
+        m.addCons(x[i,j] <= f[j], "Fac(%s,%s)"%(i,j))
+        #m.addCons(x[i,j] <= f[j]*customers[i].demand, "Fac(%s,%s)"%(i,j))
 
     # Objective function
-    m.setObjective(quicksum(x[i,j]*d[i,j] for (i,j) in x) + quicksum(f[i]*facilities[i].setup_cost for i in f), "minimize")
+    m.setObjective(quicksum(x[i,j]*d[i,j] for i in n_c for j in n_f) + quicksum(f[j]*facilities[j].setup_cost for j in n_f), "minimize")
 
     m.data = x, f
     m.optimize()
 
+    best_sol = m.getBestSol()
     sol = []
-    for j in range(0, n_c):
-        for i in range(0, n_f):
-            current_val = m.getVal(x[i,j])
+    for i in n_c:
+        for j in n_f:
+            current_val = m.getSolVal(best_sol, x[i,j])
             if current_val == 1:
-                sol.append(i)
+                sol.append(j)
+                break
 
     #assert len(sol) == len(customers)
+    print len(customers)
+    print len(sol)
 
     '''
     sol = [0 for i in range(0, n_c)]
@@ -142,7 +157,8 @@ def scip_solver(customers, facilities):
                 sol[j] = i
     '''
 
-    obj = m.getObjVal()
+    #obj = m.getObjVal()
+    obj = m.getSolObjVal(best_sol)
     return obj, sol
 
 def facility_customer_dist(facility, customer):
