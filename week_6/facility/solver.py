@@ -98,6 +98,7 @@ def scip_solver(customers, facilities, limit_solutions):
     m.setRealParam("limits/time", 3600*4)
     #if limit_solutions == True:
     #	m.setIntParam("limits/bestsol", 10)
+    #m.setIntParam("limits/bestsol", 1)
 
     # Variables to define if customer 'c' is assinged to facility 'f'
     # and if facility is active.
@@ -137,9 +138,12 @@ def scip_solver(customers, facilities, limit_solutions):
     best_sol = m.getBestSol()
     sol = []
     for i in n_c:
+        #print("Customer: %s" % i)
         for j in n_f:
+            #print("Facility: %s" % j)
             current_val = m.getSolVal(best_sol, x[i,j])
-            if current_val == 1:
+            #print("x[%s,%s]: %s" % (i, j, current_val))
+            if current_val >= 0.9:
                 sol.append(j)
                 break
 
