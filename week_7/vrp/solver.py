@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #!../../../bin/python
-=======
-#!/usr/bin/python
->>>>>>> 302717814fa2618fc99a8acd8b9dd50a967d2efa
 # -*- coding: utf-8 -*-
 
 import math
@@ -35,7 +31,6 @@ def solve_it(input_data):
     #the depot is always the first customer in the input
     depot = customers[0]
     
-<<<<<<< HEAD
     try:
         #obj, vehicle_tours = trivial_solver(customers, depot, vehicle_count, vehicle_capacity)
         #obj, vehicle_tours = scip_solver(customers, customer_count, vehicle_count, vehicle_capacity)
@@ -43,12 +38,6 @@ def solve_it(input_data):
         obj, vehicle_tours = scip_solver_3(customers, customer_count, vehicle_count, vehicle_capacity)
     except Exception as e:
         print(e)
-=======
-    #obj, vehicle_tours = trivial_solver(customers, depot, vehicle_count, vehicle_capacity)
-    #obj, vehicle_tours = scip_solver(customers, customer_count, vehicle_count, vehicle_capacity)
-    #obj, vehicle_tours = scip_solver_2(customers, customer_count, vehicle_count, vehicle_capacity)
-    obj, vehicle_tours = scip_solver_3(customers, customer_count, vehicle_count, vehicle_capacity)
->>>>>>> 302717814fa2618fc99a8acd8b9dd50a967d2efa
     
     # prepare the solution in the specified output format
     outputData = '%.2f' % obj + ' ' + str(0) + '\n'
