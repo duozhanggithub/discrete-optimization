@@ -31,21 +31,25 @@ def solve_it(input_data):
     #the depot is always the first customer in the input
     depot = customers[0]
     
+    obj = None
     try:
         #obj, vehicle_tours = trivial_solver(customers, depot, vehicle_count, vehicle_capacity)
         #obj, vehicle_tours = scip_solver(customers, customer_count, vehicle_count, vehicle_capacity)
-        #obj, vehicle_tours = scip_solver_2(customers, customer_count, vehicle_count, vehicle_capacity)
-        obj, vehicle_tours = scip_solver_3(customers, customer_count, vehicle_count, vehicle_capacity)
+        obj, vehicle_tours = scip_solver_2(customers, customer_count, vehicle_count, vehicle_capacity)
+        #obj, vehicle_tours = scip_solver_3(customers, customer_count, vehicle_count, vehicle_capacity)
     except Exception as e:
         print(e)
-    
-    # prepare the solution in the specified output format
-    outputData = '%.2f' % obj + ' ' + str(0) + '\n'
-    if len(vehicle_tours) > 0:
-        for v in range(0, vehicle_count):
-            outputData += str(depot.index) + ' ' + ' '.join([str(customer.index) for customer in vehicle_tours[v]]) + ' ' + str(depot.index) + '\n'
+   
+    if obj:
+        # prepare the solution in the specified output format
+        outputData = '%.2f' % obj + ' ' + str(0) + '\n'
+        if len(vehicle_tours) > 0:
+            for v in range(0, vehicle_count):
+                outputData += str(depot.index) + ' ' + ' '.join([str(customer.index) for customer in vehicle_tours[v]]) + ' ' + str(depot.index) + '\n'
 
-    return outputData
+        return outputData
+
+    return None
 
 def trivial_solver(customers, depot, vehicle_count, vehicle_capacity):
     # build a trivial solution
@@ -236,7 +240,7 @@ def scip_solver_2(customers, customer_count, vehicle_count, vehicle_capacity):
             elif j > i:
                 x[i,j] = model.addVar(ub=1, vtype="I", name="x(%s,%s)"%(i,j))
     
-    model.addCons(quicksum(x[0,j] for j in cd_range) == 2*vehicle_count, "DegreeDepot")
+    model.addCons(quicksum(x[0,j] for j in cd_range) <= 2*vehicle_count, "DegreeDepot")
     for i in cd_range:
         model.addCons(quicksum(x[j,i] for j in c_range if j < i) +
                         quicksum(x[i,j] for j in c_range if j > i) == 2, "Degree(%s)"%i)
@@ -257,7 +261,40 @@ def scip_solver_2(customers, customer_count, vehicle_count, vehicle_capacity):
             break
 
     print edges
-    return model.getObjVal(),[]
+    output = [[]]*vehicle_count
+    for o in output:
+        if len(edges) > 0:
+            current_item = edges[0]
+            print current_item
+            a = current_item[0]
+            b = current_item[1]
+            o.append(customers[a])
+            o.append(customers[b])
+            edges.remove(current_item)
+            for edge in edges:
+                found_connection = True
+                a_edge = edge[0]
+                b_edge = edge[1]
+                if a == a_edge or b == a_edge:
+                    o.append(customers[b_edge])
+                    a = a_edge
+                    b = b_edge
+                elif a == b_edge or b == b_edge:
+                    o.append(customers[a_edge])
+                    a = b_edge
+                    b = a_edge
+                else:
+                    found_connection = False
+                
+                if found_connection:
+                    edges.remove(edge)
+
+
+    print output
+
+    sol = model.getBestSol()
+    obj = model.getSolObjVal(sol)
+    return obj,output
 
 '''
 Source: https://scholarworks.waldenu.edu/cgi/viewcontent.cgi?article=1020&context=ijamt
@@ -319,24 +356,6 @@ def scip_solver_3(customers, customer_count, vehicle_count, vehicle_capacity):
             # Constraint: the load on vehicle v, when departing from node i, is always lower than the vehicle capacity
             model.addCons(D[i,v] <= Q, "c11(%s,%s)" % (i,v))
             model.addCons(D[i,v] >= 0, "c17(%s,%s)" % (i,v))
-
-        #model.addCons(quicksum(X[v,0,j] for j in Am) <= 1, "c2(%s)" % v)
-
-            #for j in A:
-                #model.addCons(X[v,i,j] == X[v,j,i], "c10(%s,%s,%s)" % (v,i,j))
-
-           #     if j == i:
-                    # Constraint: a vehicle always moves to another node, not the same
-           #         model.addCons(X[v,i,j] == 0, "c18(%s,%s,%s)" % (v,i,j))
-
-                #iif j > 0 and i > 0:
-                    # Constraint: transit load constraints i.e., if arc (i, j) is visited by the vehicle v, then the
-                    # quantity to be delivered by the vehicle has to decrease by d j
-                #    model.addCons((D[i,v] - d[j] - D[j,v])*X[v,i,j] == 0, "c14(%s,%s,%s)" % (v,i,j))
-
-    #for i in A:
-    #    # Constraint: each node must be visited exactly once
-    #    model.addCons(quicksum(X[v,i,j] for v in Vr for j in A) == 1, "c8(%s)" % (i))
 
     for j in A:
         if j > 0:
