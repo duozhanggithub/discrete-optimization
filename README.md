@@ -5,7 +5,7 @@ Course URL: https://www.coursera.org/learn/discrete-optimization/
 Not all code are finished. Many of them contain functions not necessarily with optimal results, but with some experiments made during the course.
 
 ## Dependencies
-
+``` Python lib
 asn1crypto==0.24.0
 cffi==1.11.5
 configparser==3.5.0
@@ -32,3 +32,4 @@ SecretStorage==2.3.1
 six==1.11.0
 testresources==2.0.1
 wadllib==1.3.3
+```
