@@ -247,47 +247,66 @@ def scip_solver_2(customers, customer_count, vehicle_count, vehicle_capacity):
 
     model.setObjective(quicksum(d[i,j]*x[i,j] for i in c_range for j in c_range if j>i), "minimize")
 
-    model.hideOutput()
+    #model.hideOutput()
 
     EPS = 1.e-6
     while True:
         model.optimize()
+        final_edges = []
         edges = []
         for (i,j) in x:
             if model.getVal(x[i,j]) > EPS:
                 if i != 0 and j != 0:
                     edges.append((i,j))
+                final_edges.append((i,j))
         if addcut(edges) == False:
             break
 
     print edges
+    print final_edges
     output = [[]]*vehicle_count
-    for o in output:
-        if len(edges) > 0:
-            current_item = edges[0]
-            print current_item
-            a = current_item[0]
-            b = current_item[1]
-            o.append(customers[a])
-            o.append(customers[b])
-            edges.remove(current_item)
-            for edge in edges:
-                found_connection = True
-                a_edge = edge[0]
-                b_edge = edge[1]
-                if a == a_edge or b == a_edge:
-                    o.append(customers[b_edge])
-                    a = a_edge
-                    b = b_edge
-                elif a == b_edge or b == b_edge:
-                    o.append(customers[a_edge])
-                    a = b_edge
-                    b = a_edge
-                else:
-                    found_connection = False
+    for i in range(vehicle_count):
+        output[i] = []
+        current_item = None
+        if len(final_edges) > 0:
+            # Get the first edge starting with 0
+            for e in final_edges:
+                if e[0] == 0:
+                    current_item = e
+                    break
+            if current_item:
+                a = current_item[0]
+                current_node = current_item[1]
+                output[i].append(customers[current_node])
+                final_edges.remove(current_item)
+                searching_connections = True
+                while searching_connections and len(final_edges) > 0:
+                    for edge in final_edges:
+                        found_connection = False
+                        a_edge = edge[0]
+                        b_edge = edge[1]
+
+                        # If we find the node connecting with a 0
+                        # it means the cycle has been closed
+                        if b_edge == current_node and a_edge == 0:
+                            final_edges.remove(edge)
+                            break
+
+                        if a_edge == current_node:
+                            output[i].append(customers[b_edge])
+                            current_node = b_edge
+                            found_connection = True
+                        elif b_edge == current_node:
+                            output[i].append(customers[a_edge])
+                            current_node = a_edge
+                            found_connection = True
                 
-                if found_connection:
-                    edges.remove(edge)
+                        if found_connection:
+                            final_edges.remove(edge)
+                            break
+
+                    if not found_connection:
+                        searching_connections = False
 
 
     print output
