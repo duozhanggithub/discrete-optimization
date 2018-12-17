@@ -3,10 +3,12 @@
 
 import math
 import networkx
+import random
 from collections import namedtuple
 from pyscipopt import Model, quicksum, multidict, Conshdlr, SCIP_RESULT, SCIP_PRESOLTIMING, SCIP_PROPTIMING
 from datetime import datetime
-#from gurobipy import *
+
+# from gurobipy import *
 
 Customer = namedtuple("Customer", ['index', 'demand', 'x', 'y'])
 
@@ -37,9 +39,12 @@ def solve_it(input_data):
 
     obj = None
     # obj, vehicle_tours = trivial_solver(customers, depot, vehicle_count, vehicle_capacity)
-    #obj, vehicle_tours = gurobi_solver(customers, customer_count, vehicle_count, vehicle_capacity)
-    obj, vehicle_tours = scip_solver_2(customers, customer_count, vehicle_count, vehicle_capacity)
+    # obj, vehicle_tours = gurobi_solver(customers, customer_count, vehicle_count, vehicle_capacity)
+    if customer_count <= 20:
+        obj, vehicle_tours = scip_solver_2(customers, customer_count, vehicle_count, vehicle_capacity)
     # obj, vehicle_tours = scip_solver_3(customers, customer_count, vehicle_count, vehicle_capacity)
+    else:
+        obj, vehicle_tours = scip_solver_4(customers, customer_count, vehicle_count, vehicle_capacity)
 
     if obj:
         # prepare the solution in the specified output format
@@ -141,9 +146,9 @@ def gurobi_solver(customers, customer_count, vehicle_count, vehicle_capacity):
         (x_ij.sum(i, '*') + x_ij.sum('*', i) == 2 for i in cd_range)
     )
     # 2 - A customer can only be connected by one other customer
-    #m.addConstrs(
+    # m.addConstrs(
     #    (x_ij.sum('*', i) == 1 for i in cd_range)
-    #)
+    # )
     # 3 - An arc can only exist in a vehicle (or tour) if they are connected
     m.addConstrs(
         (v_ij.sum('*', i, j) == x_ij[i, j] for (i, j) in arcs)
@@ -164,10 +169,10 @@ def gurobi_solver(customers, customer_count, vehicle_count, vehicle_capacity):
     )
 
     # 7 - A node cannot be connected to a node already connected to another one in the same tour (vehicle)
-    #m.addConstrs(
+    # m.addConstrs(
     #    (x_ij[i, j] + x_ij[j, z] + x_ij[z, i] <= 2 for i in cd_range for j in cd_range for z in cd_range
     #        if i != j and i != z and j != z)
-    #)
+    # )
 
     # Objective: minimize the distance
     # m.setObjective(quicksum(x_ij[i, j] * dist[(i, j)] for (i, j) in arcs), GRB.MINIMIZE)
@@ -205,7 +210,7 @@ def gurobi_solver(customers, customer_count, vehicle_count, vehicle_capacity):
                 val = v_ij[v, i, j].X
                 if val > 0:
                     if not has_nodes:
-                        #output[w].append(customers[i])
+                        # output[w].append(customers[i])
                         output[w].append(customers[j])
                         last_arc_out = j
                         has_nodes = True
@@ -266,7 +271,8 @@ def scip_solver(customers, customer_count, vehicle_count, vehicle_capacity):
 
 '''
 
-#Source: https://github.com/SCIP-Interfaces/PySCIPOpt/blob/eb4792dbc05a443ab0263fbbf184011083710ba7/examples/unfinished/vrp.py
+
+# Source: https://github.com/SCIP-Interfaces/PySCIPOpt/blob/eb4792dbc05a443ab0263fbbf184011083710ba7/examples/unfinished/vrp.py
 def scip_solver_2(customers, customer_count, vehicle_count, vehicle_capacity):
     model = Model("vrp")
 
@@ -289,25 +295,23 @@ def scip_solver_2(customers, customer_count, vehicle_count, vehicle_capacity):
         model.addCons(quicksum(x[j, i] for j in c_range if j < i) +
                       quicksum(x[i, j] for j in c_range if j > i) == 2, "Degree(%s)" % i)
 
-        #model.addCons(quicksum(x[j, i] * w[j, i] for j in c_range if j < i) +
+        # model.addCons(quicksum(x[j, i] * w[j, i] for j in c_range if j < i) +
         #              quicksum(x[i, j] * w[i, j] for j in c_range if j > i) <= 2*vehicle_capacity)
 
-
-        #for j in cd_range:
+        # for j in cd_range:
         #    for z in cd_range:
         #        if j > i and z > j:
         #            x[i, j] + x[j, z] + x[i, z] <= 2
 
-        #for j in c_range:
+        # for j in c_range:
         #    if j > i:
         #        model.addCons(x[i, j] * w[i, j] <= vehicle_capacity)
-
 
     model.setObjective(quicksum(d[i, j] * x[i, j] for i in c_range for j in c_range if j > i), "minimize")
 
     # model.hideOutput()
 
-    #mip_gaps = [0.9, 0.5, 0.2, 0.03]
+    # mip_gaps = [0.9, 0.5, 0.2, 0.03]
     mip_gaps = [0.0]
     runs = 0
 
@@ -315,17 +319,16 @@ def scip_solver_2(customers, customer_count, vehicle_count, vehicle_capacity):
     for gap in mip_gaps:
         model.freeTransform()
         model.setRealParam("limits/gap", gap)
-    #model.setRealParam("limits/absgap", 0.3)
-        model.setRealParam("limits/time", 60*20)  # Time limit in seconds
-    #model.setIntParam('limits/bestsol', 1)
-
+        # model.setRealParam("limits/absgap", 0.3)
+        model.setRealParam("limits/time", 60 * 20)  # Time limit in seconds
+        # model.setIntParam('limits/bestsol', 1)
 
         edges, final_edges, runs = optimize(customer_count, customers, model, vehicle_capacity, vehicle_count, x)
 
-    #model.setIntParam('limits/bestsol', -1)
-    #model.freeTransform()
-    #model.setRealParam("limits/gap", 0)
-    #edges, final_edges = optimize(customer_count, customers, model, vehicle_capacity, vehicle_count, x)
+    # model.setIntParam('limits/bestsol', -1)
+    # model.freeTransform()
+    # model.setRealParam("limits/gap", 0)
+    # edges, final_edges = optimize(customer_count, customers, model, vehicle_capacity, vehicle_count, x)
 
     run_time = datetime.now() - start
 
@@ -385,6 +388,7 @@ def scip_solver_2(customers, customer_count, vehicle_count, vehicle_capacity):
 
     return obj, output
 
+
 def addcut(cut_edges, model, customers, vehicle_capacity, x):
     """addcut: add constraint to eliminate infeasible solutions
     """
@@ -399,12 +403,13 @@ def addcut(cut_edges, model, customers, vehicle_capacity, x):
         NS = int(math.ceil(float(q_sum) / vehicle_capacity))
         S_edges = [(i, j) for i in S for j in S if i < j and (i, j) in cut_edges]
         if S_card >= 3 and (len(S_edges) >= S_card or NS > 1):
-        #if (len(S_edges) >= S_card or NS > 1):
+            # if (len(S_edges) >= S_card or NS > 1):
             model.addCons(quicksum(x[i, j] for i in S for j in S if j > i) <= S_card - NS)
-            #model.addCons(quicksum(x[i, j] * (customers[i].demand + customers[j].demand)
+            # model.addCons(quicksum(x[i, j] * (customers[i].demand + customers[j].demand)
             #                                  for (i, j) in cut_edges) <= 2*vehicle_capacity)
             cut = True
     return cut
+
 
 def optimize(customer_count, customers, model, vehicle_capacity, vehicle_count, x, cut=True):
     EPS = 1.e-6
@@ -426,15 +431,16 @@ def optimize(customer_count, customers, model, vehicle_capacity, vehicle_count, 
         if not cut:
             break
 
-        if  not addcut(edges, model, customers, vehicle_capacity, x):
+        if not addcut(edges, model, customers, vehicle_capacity, x):
             break
     return edges, final_edges, runs
-
 
 
 '''
 #Source: https://scholarworks.waldenu.edu/cgi/viewcontent.cgi?article=1020&context=ijamt
 '''
+
+
 def scip_solver_3(customers, customer_count, vehicle_count, vehicle_capacity):
     """
     #### Notations #### 
@@ -552,6 +558,7 @@ def scip_solver_3(customers, customer_count, vehicle_count, vehicle_capacity):
 
     return obj, vehicle_tours
 
+
 """
 This solution takes into consideration the approach proposed by Fisher and Kaikumar.
 http://neo.lcc.uma.es/vrp/solution-methods/heuristics/cluster-first-route-second-method/
@@ -560,58 +567,217 @@ https://apps.dtic.mil/dtic/tr/fulltext/u2/a100992.pdf
 The idea is to first cluster the best possible customers on each vehicle,
 and then apply the TSP optimization on each one of them.
 """
+
+
 def scip_solver_4(customers, customer_count, vehicle_count, vehicle_capacity):
     # Setting up basic variables
     K = vehicle_count
     n = customer_count
     b = vehicle_capacity
-    a = {} # the demand for customer i
-    c = {} # the distance between customer i and j
-
-    v_range = range(0, K)
-    c_range = range(0, customer_count)
+    a = {}  # the demand for customer i
+    c = {}  # the distance between customer i and j
 
     for i, x in enumerate(customers):
         a[i] = x.demand
 
         for j, y in enumerate(customers):
-            if i != j:
-                c[(i, j)] = length(x, y)
+            # if i != j:
+            c[(i, j)] = length(x, y)
+
+    # Monte-carlo simulations to retrieve the best outputs
+    num_sim = 2000
+    generated_samples = []
+    best_obj = 99999999
+    best_tours = []
+
+
+    for i in range(0, num_sim):
+        ### VEHICLE CAPACITY SUB-PROBLEM ###
+        obj, vehicle_tours = vehicle_capacity_solver(K, a, b, c, customer_count, generated_samples)
+
+        if obj < best_obj and [item for elem in vehicle_tours.items() for item in elem[1]] == n-1:
+            best_obj = obj
+            best_tours = vehicle_tours
+
+    ### TSP ON VEHICLES SUB-PROBLEM ###
+    final_obj, final_tours = tsp_solver(c, customers, best_tours)
+
+    print(final_obj)
+    print(final_tours)
+    
+    return final_obj, final_tours
+
+
+    '''
+    for i in range(0, num_sim):
+        ### VEHICLE CAPACITY SUB-PROBLEM ###
+        obj, vehicle_tours = vehicle_capacity_solver(K, a, b, c, n, generated_samples)
+
+        ### TSP ON VEHICLES SUB-PROBLEM ###
+        final_obj, final_tours = tsp_solver(c, customers, vehicle_tours)
+
+        # For some reason, SCIP is bypassing one of the constraints. We should check it here
+
+        if final_obj < best_obj and len([item for elem in final_tours for item in elem]) == n:
+            best_obj = final_obj
+            best_tours = final_tours
+
+    print("Best objective cost: %s" % best_obj)
+    print("Best tours: %s" % best_tours)
+    '''
+
+    return best_obj, best_tours
+
+
+def tsp_solver(c, customers, vehicle_tours):
+    def addcut(cut_edges):
+        G = networkx.Graph()
+        G.add_edges_from(cut_edges)
+        Components = list(networkx.connected_components(G))
+        if len(Components) == 1:
+            return False
+        model.freeTransform()
+        for S in Components:
+            model.addCons(quicksum(x[i, j] for i in S for j in S) <= len(S) - 1)
+
+        return True
+
+    # Add the depot on each vehicle
+    vehicle_tours = {k: vehicle_tours[k] + [0] for k in vehicle_tours.keys()}
+    final_obj = 0
+    final_tours = []
+    for key, value in vehicle_tours.iteritems():
+        v_customers = value
+        model = Model("vrp_tsp")
+        model.hideOutput()
+        x = {}
+
+        for i in v_customers:
+            for j in v_customers:
+                # vehicle moves from customer i to customer j
+                x[i, j] = model.addVar(vtype="B", name="x(%s,%s)" % (i, j))
+
+        for i in v_customers:
+            # Constraint: every customer can only be visited once
+            # (or, every node must be connected and connect to another node)
+            model.addCons(quicksum(x[i, j] for j in v_customers) == 1)
+            model.addCons(quicksum(x[j, i] for j in v_customers) == 1)
+
+            for j in v_customers:
+                if i == j:
+                    # Constraint: a node cannot conect to itself
+                    model.addCons(x[i, j] == 0)
+
+        # Objective function: minimize total distance of the tour
+        model.setObjective(quicksum(x[i, j] * c[(i, j)] for i in v_customers for j in v_customers), "minimize")
+
+        EPS = 1.e-6
+        isMIP = False
+        while True:
+            model.optimize()
+            edges = []
+            for (i, j) in x:
+                if model.getVal(x[i, j]) > EPS:
+                    edges.append((i, j))
+
+            if addcut(edges) == False:
+                if isMIP:  # integer variables, components connected: solution found
+                    break
+                model.freeTransform()
+                for (i, j) in x:  # all components connected, switch to integer model
+                    model.chgVarType(x[i, j], "B")
+                    isMIP = True
+
+        # model.optimize()
+        best_sol = model.getBestSol()
+        sub_tour = []
+
+        # Build the graph path
+        # Retrieve the last node of the graph, i.e., the last one connecting to the depot
+        last_node = [n for n in edges if n[1] == 0][0][0]
+        G = networkx.Graph()
+        G.add_edges_from(edges)
+        path = list(networkx.all_simple_paths(G, source=0, target=last_node))
+        path.sort(reverse=True, key=lambda u: len(u))
+
+        if len(path) > 0:
+            path = path[0][1:]
+        else:
+            path = path[1:]
+
+        obj = model.getSolObjVal(best_sol)
+        final_obj += obj
+        final_tours.append([customers[i] for i in path])
+
+        print("Customers visited by vehicle %s: %s" % (key, value))
+        print("Objective cost for vehicle %s: %s" % (key, obj))
+        print("Edges visited by vehicle %s: %s" % (key, edges))
+        print("Path visited by vehicle %s: %s" % (key, path))
+    return final_obj, final_tours
+
+
+def vehicle_capacity_solver(K, a, b, c, customer_count, generated_samples):
+    v_range = range(0, K)
+    c_range = range(1, customer_count)
 
     # First we set the K seeds to use on the clustering
-    # Dummy method: just get the K customers with more demands
-    a_ord = sorted(a.items(), key=lambda k: k[1])
-    a_ord.reverse()
+    # Dummy method: just get random items
+    #a_filter = {k: v for k, v in a.iteritems() if k > 0}
+    sample = random.sample(c_range, K)
+    while sample in generated_samples:
+        print("Generating samples...")
+        sample = random.sample(c_range, K)
+    generated_samples.append(sample)
+    #a_ord = sorted(a.items(), key=lambda k: k[1])
+    #a_ord.reverse()
     w = {}
     for i in v_range:
-        w[i] = a_ord[i][0]
+        w[i] = sample[i]
 
     # Resolve MIP problem to find the best possible vehicle-customers combinations
     model = Model("vrp_vehicles")
-    y = {}
+    model.hideOutput()
 
+    y = {}
     for v in v_range:
         for i in c_range:
-            y[i, v] = model.addVar(vtype="B", name="y(%s,%s)" % (i, v)) # customer i is visited by vehicle v
-
+            # customer i is visited by vehicle v
+            y[i, v] = model.addVar(vtype="B", name="y(%s,%s)" % (i, v))
     for v in v_range:
         # Constraint: the demand of customers assigned to vehicle V cannot exceed its capacity
-        model.addCons(quicksum(a[i] * y[i, v] for i in c_range) <= K)
+        model.addCons(quicksum(a[i] * y[i, v] for i in c_range) <= b)
+
+        # Constraint: we enforce the customers on 'w' to be visited by the defined vehicle
+        model.addCons(y[w[v], v] == 1)
 
     for i in c_range:
-        if i > 0:
-            # Constraint: each customer has to be visited by exactly one vehicle
-            model.addCons(quicksum(y[i, v] for v in v_range) == 1)
+        # if i > 0:
+        # Constraint: each customer has to be visited by exactly one vehicle
+        model.addCons(quicksum(y[i, v] for v in v_range) == 1)
 
-    # Constraint: all the vehicles must leave the depot
-    model.addCons(quicksum(y[0, v] for v in v_range) == K)
+    model.setObjective(quicksum(quicksum(cost_of_new_customer_in_vehicle(c, i, w[v])
+                                         for i in c_range) for v in v_range), "minimize")
 
-    model.setObjective(quicksum(quicksum(cost_of_new_customer_in_vehicle(c, i, w[v]) for i in c_range)
-                                for v in v_range), "minimize")
+    model.optimize()
+    #best_sol = model.getBestSol()
+    vehicle_tours = {}
+    for v in v_range:
+        vehicle_tours[v] = []
+        for i in c_range:
+            #val = model.getSolVal(best_sol, y[i, v])
+            val = model.getVal(y[i, v])
+            if val > 0:
+                vehicle_tours[v].append(i)
+    #obj = model.getSolObjVal(best_sol)
+    obj = model.getObjVal()
+    # print(obj)
+    print(vehicle_tours)
+    return obj, vehicle_tours
 
 
 def cost_of_new_customer_in_vehicle(c, i, w):
     return min(c[(0, i)] + c[(i, w)] + c[(w, 0)], c[(0, w)] + c[(w, i)] + c[(i, 0)]) - (c[(0, w)] + c[w, 0])
+    #return c[(0, i)] + c[(i, w)] + c[(w, 0)]
 
 
 if __name__ == '__main__':
