@@ -40,7 +40,7 @@ def solve_it(input_data):
     obj = None
     # obj, vehicle_tours = trivial_solver(customers, depot, vehicle_count, vehicle_capacity)
     # obj, vehicle_tours = gurobi_solver(customers, customer_count, vehicle_count, vehicle_capacity)
-    if customer_count <= 20:
+    if customer_count <= 10:
         obj, vehicle_tours = scip_solver_2(customers, customer_count, vehicle_count, vehicle_capacity)
     # obj, vehicle_tours = scip_solver_3(customers, customer_count, vehicle_count, vehicle_capacity)
     else:
@@ -584,20 +584,41 @@ def scip_solver_4(customers, customer_count, vehicle_count, vehicle_capacity):
             # if i != j:
             c[(i, j)] = length(x, y)
 
-    # Monte-carlo simulations to retrieve the best outputs
-    num_sim = 2000
+    # Minimum number of vehicles required
+    min_v = int(math.ceil(float(sum(a[i] for i in range(0, customer_count))) / b))
+
+    # Dummy method: random samples to retrieve the best outputs
+    # TODO: improve the choice of the first picked vehicles on the Vehicle Capacity optimization
+    num_sim = 1
     generated_samples = []
     best_obj = 99999999
     best_tours = []
 
+    threshold = 0
+    if customer_count == 16:
+        threshold = 320
+    if customer_count == 26:
+        threshold = 900
+    elif customer_count == 51:
+        threshold = 713
+    elif customer_count == 101:
+        threshold = 1193
+    elif customer_count == 200:
+        threshold = 3300
+    elif customer_count == 421:
+        threshold = 2392
 
+    '''
     for i in range(0, num_sim):
         ### VEHICLE CAPACITY SUB-PROBLEM ###
         obj, vehicle_tours = vehicle_capacity_solver(K, a, b, c, customer_count, generated_samples)
 
-        if obj < best_obj and [item for elem in vehicle_tours.items() for item in elem[1]] == n-1:
+        # For some reason, SCIP is bypassing one of the constraints. We should check it here
+        if obj and vehicle_tours and obj < best_obj and \
+                len([item for elem in vehicle_tours.items() for item in elem[1]]) == n-1:
             best_obj = obj
             best_tours = vehicle_tours
+            print("Best tours updated...")
 
     ### TSP ON VEHICLES SUB-PROBLEM ###
     final_obj, final_tours = tsp_solver(c, customers, best_tours)
@@ -606,25 +627,39 @@ def scip_solver_4(customers, customer_count, vehicle_count, vehicle_capacity):
     print(final_tours)
     
     return final_obj, final_tours
-
-
     '''
-    for i in range(0, num_sim):
-        ### VEHICLE CAPACITY SUB-PROBLEM ###
-        obj, vehicle_tours = vehicle_capacity_solver(K, a, b, c, n, generated_samples)
 
-        ### TSP ON VEHICLES SUB-PROBLEM ###
-        final_obj, final_tours = tsp_solver(c, customers, vehicle_tours)
+    current_num_v = min_v
+    #for i in range(0, num_sim):
+    while best_obj > threshold:
+        for i in range(1, customer_count):
+            ### VEHICLE CAPACITY SUB-PROBLEM ###
+            obj, vehicle_tours = vehicle_capacity_solver(K, a, b, c, n, i)
+            #vehicle_tours = heuristic_vehicle_capacity_solver(K, a, b, min_v, n)
 
-        # For some reason, SCIP is bypassing one of the constraints. We should check it here
+            ### TSP ON VEHICLES SUB-PROBLEM ###
+            #vehicle_tours = { vehicle_tours.index(li): li for li in vehicle_tours }
+            final_obj, final_tours = tsp_solver(c, customers, vehicle_tours)
+            #print("TSP problem solved...")
 
-        if final_obj < best_obj and len([item for elem in final_tours for item in elem]) == n:
-            best_obj = final_obj
-            best_tours = final_tours
+            # For some reason, SCIP is bypassing one of the constraints. We should check it here
+            if final_obj < best_obj and len([item for elem in final_tours for item in elem]) == n-1:
+                best_obj = final_obj
+                best_tours = final_tours
+                #print("Best tours updated...")
+                print("Best solution found: %s" % best_obj)
+
+        #if best_obj <= threshold:
+        #    break
+        break
+
+        #current_num_v += 1
+        #if current_num_v > vehicle_count:
+        #    current_num_v = min_v
 
     print("Best objective cost: %s" % best_obj)
-    print("Best tours: %s" % best_tours)
-    '''
+    #print("Best tours: %s" % best_tours)
+
 
     return best_obj, best_tours
 
@@ -709,30 +744,54 @@ def tsp_solver(c, customers, vehicle_tours):
         final_obj += obj
         final_tours.append([customers[i] for i in path])
 
-        print("Customers visited by vehicle %s: %s" % (key, value))
-        print("Objective cost for vehicle %s: %s" % (key, obj))
-        print("Edges visited by vehicle %s: %s" % (key, edges))
-        print("Path visited by vehicle %s: %s" % (key, path))
+        #print("Customers visited by vehicle %s: %s" % (key, value))
+        #print("Objective cost for vehicle %s: %s" % (key, obj))
+        #print("Edges visited by vehicle %s: %s" % (key, edges))
+        #print("Path visited by vehicle %s: %s" % (key, path))
     return final_obj, final_tours
 
 
-def vehicle_capacity_solver(K, a, b, c, customer_count, generated_samples):
+def vehicle_capacity_solver(K, a, b, c, customer_count, item_to_pick):
     v_range = range(0, K)
     c_range = range(1, customer_count)
+    samples = []
 
     # First we set the K seeds to use on the clustering
-    # Dummy method: just get random items
-    #a_filter = {k: v for k, v in a.iteritems() if k > 0}
-    sample = random.sample(c_range, K)
-    while sample in generated_samples:
-        print("Generating samples...")
-        sample = random.sample(c_range, K)
-    generated_samples.append(sample)
+
+    # Dummy method: order by the customer demand and put the first one in one of the vehicles
+    # For the remaining K-1 vehicles, choose the nodes most distance from each other
     #a_ord = sorted(a.items(), key=lambda k: k[1])
     #a_ord.reverse()
+    #samples.append(a_ord[0])
+    #del a_ord[0]
+
+    # The first picked customer will be random
+    # For the remaining K-1 vehicles, choose the nodes most distance from each other
+    a_ord = a.items()
+    #item = random.sample(c_range, 1)[0]
+    samples.append(a_ord[item_to_pick])
+    del a_ord[item_to_pick]
+
+    while True:
+        a_ord = sorted(a_ord, key=lambda el: dist_between_nodes(el, samples, c), reverse=True)
+        samples.append(a_ord[0])
+        del a_ord[0]
+
+        if len(samples) == K:
+            break
+
     w = {}
     for i in v_range:
-        w[i] = sample[i]
+        w[i] = samples[i][0]
+
+    # else:
+    # Dummy method: just get random items
+    # sample = random.sample(c_range, current_num_v)
+    # if sample in generated_samples:
+    #    print("Sample already used. Generating a new one...")
+    #    sample = random.sample(c_range, K)
+
+    # generated_samples.append(sample)
 
     # Resolve MIP problem to find the best possible vehicle-customers combinations
     model = Model("vrp_vehicles")
@@ -755,8 +814,10 @@ def vehicle_capacity_solver(K, a, b, c, customer_count, generated_samples):
         # Constraint: each customer has to be visited by exactly one vehicle
         model.addCons(quicksum(y[i, v] for v in v_range) == 1)
 
-    model.setObjective(quicksum(quicksum(cost_of_new_customer_in_vehicle(c, i, w[v])
-                                         for i in c_range) for v in v_range), "minimize")
+    #model.setObjective(quicksum(quicksum(cost_of_new_customer_in_vehicle(c, i, w[v])
+    #                                     for i in c_range) for v in v_range), "minimize")
+
+    model.setObjective(quicksum(quicksum((c[(i, j)]*y[i, v]) + (c[(i, j)]*y[j, v]) for i in c_range for j in c_range) for v in v_range), "minimize")
 
     model.optimize()
     #best_sol = model.getBestSol()
@@ -771,8 +832,82 @@ def vehicle_capacity_solver(K, a, b, c, customer_count, generated_samples):
     #obj = model.getSolObjVal(best_sol)
     obj = model.getObjVal()
     # print(obj)
-    print(vehicle_tours)
+    #print(vehicle_tours)
     return obj, vehicle_tours
+
+
+def heuristic_vehicle_capacity_solver(K, a, b, min_v, n):
+    # Pick a random number of customers that will be visited by each vehicle
+    capacity_respected = False
+    while not capacity_respected:
+        customers_it = range(1, n)
+        vehicle_tours = [[]] * K
+        num_cust_in_v = random.choice(range(1, max(1, n - min_v)))
+        vehicle_tours[0] = random.sample(customers_it, num_cust_in_v)
+        customers_it = [i for i in customers_it if i not in vehicle_tours[0]]
+
+        while sum(a[i] for i in vehicle_tours[0]) > b:
+            last_elem = vehicle_tours[0][-1]
+            del vehicle_tours[0][-1]
+            customers_it.append(last_elem)
+
+        for j in range(1, K):
+            n_remaining = max(1, len(customers_it) - min_v)
+
+            if n_remaining > 0:
+                if j < K - 1:
+                    num_cust_in_v = random.choice(range(1, n_remaining + 1))
+
+                    vehicle_tours[j] = random.sample(customers_it, num_cust_in_v)
+                    customers_it = [cc for cc in customers_it if cc not in vehicle_tours[j]]
+
+                    while sum(a[t] for t in vehicle_tours[j]) > b:
+                        last_elem = vehicle_tours[j][-1]
+                        del vehicle_tours[j][-1]
+                        customers_it.append(last_elem)
+                else:
+                    vehicle_tours[j] = customers_it
+                    if sum(a[t] for t in vehicle_tours[j]) > b:
+                        # vehicle_tours.sort(key=len)
+                        i_add = 0
+                        while sum(a[t] for t in vehicle_tours[j]) > b:
+                            if i_add != j:
+                                elem_try = 1
+                                while True:
+                                    last_elem = vehicle_tours[j][-elem_try]
+                                    if sum(a[i_add_item] for i_add_item in vehicle_tours[i_add]) + a[last_elem] <= b:
+                                        del vehicle_tours[j][-elem_try]
+                                        vehicle_tours[i_add].append(last_elem)
+                                        i_add = -1
+                                        break
+                                    elem_try += 1
+                                    if elem_try > len(vehicle_tours[j]):
+                                        break
+                            i_add += 1
+
+                            if i_add == K:
+                                break
+
+        capacity_resp_l = []
+        print("Checking if capacity were respected...")
+        for tour in vehicle_tours:
+            capacity_resp_l.append(sum(a[i] for i in tour) <= b)
+        capacity_respected = all(x for x in capacity_resp_l)
+    return vehicle_tours
+
+
+def dist_between_nodes(node_to_check, nodes, c):
+    """
+    Checks the total distance between one node and a list of other nodes
+    :param nodes: list of nodes to compare
+    :param node_to_check: the node that will be compared to the other ones
+    :return: the sum of distances
+    """
+    sum = 0
+    for node in nodes:
+        sum += c[(node_to_check[0], node[0])]
+
+    return sum
 
 
 def cost_of_new_customer_in_vehicle(c, i, w):
